@@ -3,7 +3,6 @@ from pyteal import (
     abi,
     TealType,
     Subroutine,
-    Itob,
     Assert,
     Global,
     Bytes,
@@ -11,18 +10,19 @@ from pyteal import (
     Seq,
     AssetHolding,
     AssetParam,
-    Txn,
     If,
-    And,
     InnerTxnBuilder,
     ScratchVar,
     TxnField,
     TxnType,
+    WideRatio,
+    And,
     Not,
     ExtractUint64,
     Extract,
-    WideRatio,
     Concat,
+    Itob,
+    Txn,
 )
 
 from beaker import Application, ApplicationStateValue, DynamicAccountStateValue
@@ -60,11 +60,11 @@ class ARC18(Application):
 
     @update
     def update(self):
-        return Assert(Txn.sender() == ARC18.administrator)
+        return Txn.sender() == ARC18.administrator
 
     @delete
     def delete(self):
-        return Assert(Txn.sender() == ARC18.administrator)
+        return Txn.sender() == ARC18.administrator
 
     ###
     # Admin
@@ -95,34 +95,26 @@ class ARC18(Application):
             If(And(is_allowed.get(), Not(bal.hasValue())))
             .Then(
                 # Opt in to asset
-                Seq(
-                    InnerTxnBuilder.Begin(),
-                    InnerTxnBuilder.SetFields(
-                        {
-                            TxnField.type_enum: TxnType.AssetTransfer,
-                            TxnField.xfer_asset: payment_asset.asset_id(),
-                            TxnField.asset_amount: Int(0),
-                            TxnField.asset_receiver: Global.current_application_address(),
-                        }
-                    ),
-                    InnerTxnBuilder.Submit(),
+                InnerTxnBuilder.Execute(
+                    {
+                        TxnField.type_enum: TxnType.AssetTransfer,
+                        TxnField.xfer_asset: payment_asset.asset_id(),
+                        TxnField.asset_amount: Int(0),
+                        TxnField.asset_receiver: Global.current_application_address(),
+                    }
                 ),
             )
             .ElseIf(And(Not(is_allowed.get()), bal.hasValue()))
             .Then(
                 # Opt out, close asset to asset creator
-                Seq(
-                    InnerTxnBuilder.Begin(),
-                    InnerTxnBuilder.SetFields(
-                        {
-                            TxnField.type_enum: TxnType.AssetTransfer,
-                            TxnField.xfer_asset: payment_asset.asset_id(),
-                            TxnField.asset_amount: Int(0),
-                            TxnField.asset_close_to: creator.value(),
-                            TxnField.asset_receiver: creator.value(),
-                        }
-                    ),
-                    InnerTxnBuilder.Submit(),
+                InnerTxnBuilder.Execute(
+                    {
+                        TxnField.type_enum: TxnType.AssetTransfer,
+                        TxnField.xfer_asset: payment_asset.asset_id(),
+                        TxnField.asset_amount: Int(0),
+                        TxnField.asset_close_to: creator.value(),
+                        TxnField.asset_receiver: creator.value(),
+                    }
                 ),
             ),
         )
@@ -155,15 +147,17 @@ class ARC18(Application):
             ),
             offer_auth_addr.store(self.offered_auth(offer.load())),
             offer_amt.store(self.offered_amount(offer.load())),
-            # App call sent by authorizing address
-            Assert(Txn.sender() == offer_auth_addr.load()),
-            # payment txn should also be from auth address
-            Assert(payment_txn.get().sender() == offer_auth_addr.load()),
-            # transfer amount <= offered amount
-            Assert(royalty_asset_amount.get() <= offer_amt.load()),
-            # Make sure payments are going to the right participants
-            Assert(payment_txn.get().receiver() == Application.address),
-            Assert(royalty_receiver.address() == self.royalty_receiver),
+            Assert(
+                # App call sent by authorizing address
+                Txn.sender() == offer_auth_addr.load(),
+                # payment txn should also be from auth address
+                payment_txn.get().sender() == offer_auth_addr.load(),
+                # transfer amount <= offered amount
+                royalty_asset_amount.get() <= offer_amt.load(),
+                # Make sure payments are going to the right participants
+                payment_txn.get().receiver() == Application.address,
+                royalty_receiver.address() == self.royalty_receiver,
+            ),
         )
 
         return Seq(
@@ -217,24 +211,26 @@ class ARC18(Application):
         offer_auth_addr = ScratchVar(TealType.bytes)
 
         valid_transfer_group = Seq(
-            Assert(Global.group_size() == Int(2)),
             # Get the offer from local state
             (offer := ScratchVar()).store(
                 self.offers[royalty_asset.asset_id()].get_must(owner.address())
             ),
             offer_auth_addr.store(ARC18.offered_auth(offer.load())),
             offer_amt.store(ARC18.offered_amount(offer.load())),
-            # App call sent by authorizing address
-            Assert(Txn.sender() == offer_auth_addr.load()),
-            # payment txn should be from auth
-            Assert(payment_txn.get().sender() == offer_auth_addr.load()),
-            # transfer amount <= offered amount
-            Assert(royalty_asset_amount.get() <= offer_amt.load()),
-            # Passed the correct account according to the policy
-            Assert(payment_txn.get().xfer_asset() == payment_asset.asset_id()),
-            # Make sure payments go to the right participants
-            Assert(payment_txn.get().asset_receiver() == Application.address),
-            Assert(royalty_receiver.address() == self.royalty_receiver),
+            Assert(
+                Global.group_size() == Int(2),
+                # App call sent by authorizing address
+                Txn.sender() == offer_auth_addr.load(),
+                # payment txn should be from auth
+                payment_txn.get().sender() == offer_auth_addr.load(),
+                # transfer amount <= offered amount
+                royalty_asset_amount.get() <= offer_amt.load(),
+                # Passed the correct account according to the policy
+                payment_txn.get().xfer_asset() == payment_asset.asset_id(),
+                # Make sure payments go to the right participants
+                payment_txn.get().asset_receiver() == Application.address,
+                royalty_receiver.address() == self.royalty_receiver,
+            ),
         )
 
         return Seq(
@@ -276,11 +272,11 @@ class ARC18(Application):
         return Seq(
             cb := AssetParam.clawback(royalty_asset.asset_id()),
             bal := AssetHolding.balance(Txn.sender(), royalty_asset.asset_id()),
-            # Check that caller _has_ this asset
-            Assert(bal.value() >= royalty_asset_amount.get()),
-            # Check that this app is the clawback for it
             Assert(
-                And(cb.hasValue(), cb.value() == Global.current_application_address())
+                # Check that caller _has_ this asset
+                bal.value() >= royalty_asset_amount.get(),
+                # Check that this app is the clawback for it
+                And(cb.hasValue(), cb.value() == Global.current_application_address()),
             ),
             # Set the auth addr for this asset
             ARC18.do_update_offered(
@@ -312,9 +308,11 @@ class ARC18(Application):
             (curr_offer_auth := ScratchVar()).store(ARC18.offered_auth(offer.load())),
             # Must match what is currently offered and amt to move is less than
             # or equal to what has been offered
-            Assert(curr_offer_amt.load() == offered_amt.get()),
-            Assert(curr_offer_amt.load() >= royalty_asset_amount.get()),
-            Assert(curr_offer_auth.load() == Txn.sender()),
+            Assert(
+                curr_offer_amt.load() == offered_amt.get(),
+                curr_offer_amt.load() >= royalty_asset_amount.get(),
+                curr_offer_auth.load() == Txn.sender(),
+            ),
             # Delete the offer
             ARC18.do_update_offered(
                 owner.address(),
@@ -427,17 +425,14 @@ class ARC18(Application):
                     TxnField.receiver: owner,
                 }
             ),
-            If(
-                royalty_amt.load() > Int(0),
-                Seq(
-                    InnerTxnBuilder.Next(),
-                    InnerTxnBuilder.SetFields(
-                        {
-                            TxnField.type_enum: TxnType.Payment,
-                            TxnField.amount: royalty_amt.load(),
-                            TxnField.receiver: royalty_receiver,
-                        }
-                    ),
+            If(royalty_amt.load() > Int(0)).Then(
+                InnerTxnBuilder.Next(),
+                InnerTxnBuilder.SetFields(
+                    {
+                        TxnField.type_enum: TxnType.Payment,
+                        TxnField.amount: royalty_amt.load(),
+                        TxnField.receiver: royalty_receiver,
+                    }
                 ),
             ),
             InnerTxnBuilder.Submit(),
@@ -445,18 +440,14 @@ class ARC18(Application):
 
     @Subroutine(TealType.none)
     def do_move_asset(asset_id, from_addr, to_addr, asset_amt):
-        return Seq(
-            InnerTxnBuilder.Begin(),
-            InnerTxnBuilder.SetFields(
-                {
-                    TxnField.type_enum: TxnType.AssetTransfer,
-                    TxnField.xfer_asset: asset_id,
-                    TxnField.asset_amount: asset_amt,
-                    TxnField.asset_sender: from_addr,
-                    TxnField.asset_receiver: to_addr,
-                }
-            ),
-            InnerTxnBuilder.Submit(),
+        return InnerTxnBuilder.Execute(
+            {
+                TxnField.type_enum: TxnType.AssetTransfer,
+                TxnField.xfer_asset: asset_id,
+                TxnField.asset_amount: asset_amt,
+                TxnField.asset_sender: from_addr,
+                TxnField.asset_receiver: to_addr,
+            }
         )
 
     @Subroutine(TealType.none)
@@ -465,13 +456,15 @@ class ARC18(Application):
         return Seq(
             previous := offer_state.get_maybe(acct),
             # If we had something before, make sure its the same as what was passed. Otherwise make sure that a 0 was passed
-            If(
-                previous.hasValue(),
-                Seq(
-                    Assert(ARC18.offered_amount(previous.value()) == prev_amt),
-                    Assert(ARC18.offered_auth(previous.value()) == prev_auth),
+            If(previous.hasValue())
+            .Then(
+                Assert(
+                    ARC18.offered_amount(previous.value()) == prev_amt,
+                    ARC18.offered_auth(previous.value()) == prev_auth,
                 ),
-                Assert(And(prev_amt == Int(0), prev_auth == Global.zero_address())),
+            )
+            .Else(
+                Assert(prev_amt == Int(0), prev_auth == Global.zero_address()),
             ),
             # Now consider the new offer, if its 0 this is a delete, otherwise update
             If(
