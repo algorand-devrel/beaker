@@ -30,6 +30,7 @@ from beaker.decorators import Authorize, external, create, update, delete
 
 
 class ARC18(Application):
+    """ ARC18 Contract providing an interface to create and enforce a royalty policy over a given ASA.  See  https://github.com/algorandfoundation/ARCs/blob/main/ARCs/arc-0018.md for details."""
 
     administrator: Final[ApplicationStateValue] = ApplicationStateValue(
         stack_type=TealType.bytes, key=Bytes("admin"), default=Global.creator_address()
@@ -124,6 +125,36 @@ class ARC18(Application):
                     ),
                     InnerTxnBuilder.Submit(),
                 ),
+            ),
+        )
+
+    @external
+    def set_offer(
+        self,
+        royalty_asset: abi.Asset,
+        royalty_asset_amount: abi.Uint64,
+        auth_address: abi.Address,
+        prev_offer_amt: abi.Uint64,
+        prev_offer_auth: abi.Address,
+    ):
+        """Flags that an asset is offered for sale and sets address authorized to submit the transfer"""
+        return Seq(
+            cb := AssetParam.clawback(royalty_asset.asset_id()),
+            bal := AssetHolding.balance(Txn.sender(), royalty_asset.asset_id()),
+            # Check that caller _has_ this asset
+            Assert(bal.value() >= royalty_asset_amount.get()),
+            # Check that this app is the clawback for it
+            Assert(
+                And(cb.hasValue(), cb.value() == Global.current_application_address())
+            ),
+            # Set the auth addr for this asset
+            ARC18.do_update_offered(
+                Txn.sender(),
+                royalty_asset.asset_id(),
+                auth_address.get(),
+                royalty_asset_amount.get(),
+                prev_offer_auth.get(),
+                prev_offer_amt.get(),
             ),
         )
 
@@ -263,35 +294,7 @@ class ARC18(Application):
             ),
         )
 
-    @external
-    def offer(
-        self,
-        royalty_asset: abi.Asset,
-        royalty_asset_amount: abi.Uint64,
-        auth_address: abi.Address,
-        prev_offer_amt: abi.Uint64,
-        prev_offer_auth: abi.Address,
-    ):
-        """Flags that an asset is offered for sale and sets address authorized to submit the transfer"""
-        return Seq(
-            cb := AssetParam.clawback(royalty_asset.asset_id()),
-            bal := AssetHolding.balance(Txn.sender(), royalty_asset.asset_id()),
-            # Check that caller _has_ this asset
-            Assert(bal.value() >= royalty_asset_amount.get()),
-            # Check that this app is the clawback for it
-            Assert(
-                And(cb.hasValue(), cb.value() == Global.current_application_address())
-            ),
-            # Set the auth addr for this asset
-            ARC18.do_update_offered(
-                Txn.sender(),
-                royalty_asset.asset_id(),
-                auth_address.get(),
-                royalty_asset_amount.get(),
-                prev_offer_auth.get(),
-                prev_offer_amt.get(),
-            ),
-        )
+
 
     @external
     def royalty_free_move(

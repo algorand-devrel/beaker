@@ -1,11 +1,10 @@
 from algosdk.atomic_transaction_composer import AccountTransactionSigner
 from algosdk.future import transaction
 
+from beaker.contracts.arcs import ARC18
 from beaker.client import ApplicationClient
 from beaker.sandbox import get_client, get_accounts
-
-from contract import MyRoyaltyContract
-
+import json
 
 client = get_client()
 
@@ -15,23 +14,27 @@ signer = AccountTransactionSigner(sk)
 
 def demo():
     # Initialize Application from amm.py
-    app = MyRoyaltyContract()
+    app = ARC18()
+    print(json.dumps(app.contract.dictify()))
 
-    # Create an Application client containing both an algod client and my app
-    app_client = ApplicationClient(client, app, signer=signer)
 
-    # Create the applicatiion on chain, set the app id for the app client
-    app_id, app_addr, txid = app_client.create()
-    print(f"Created App with id: {app_id} and address addr: {app_addr} in tx: {txid}")
 
-    sp = client.suggested_params()
-    txid = client.send_transaction(
-        transaction.PaymentTxn(addr, sp, app_addr, int(1e6)).sign(sk)
-    )
-    transaction.wait_for_confirmation(client, txid, 4)
 
-    result = app_client.call(app.create_nft, name="cool-nft")
-    print(f"Created nft with id: {result.return_value}")
+    ## Create an Application client containing both an algod client and my app
+    #app_client = ApplicationClient(client, app, signer=signer)
+
+    ## Create the applicatiion on chain, set the app id for the app client
+    #app_id, app_addr, txid = app_client.create()
+    #print(f"Created App with id: {app_id} and address addr: {app_addr} in tx: {txid}")
+
+    #sp = client.suggested_params()
+    #txid = client.send_transaction(
+    #    transaction.PaymentTxn(addr, sp, app_addr, int(1e6)).sign(sk)
+    #)
+    #transaction.wait_for_confirmation(client, txid, 4)
+
+    #result = app_client.call(app.create_nft, name="cool-nft")
+    #print(f"Created nft with id: {result.return_value}")
 
 
 if __name__ == "__main__":
