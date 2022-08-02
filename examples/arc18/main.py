@@ -24,14 +24,11 @@ def demo():
     app_id, app_addr, txid = app_client.create()
     print(f"Created App with id: {app_id} and address addr: {app_addr} in tx: {txid}")
 
-    sp = client.suggested_params()
-    txid = client.send_transaction(
-        transaction.PaymentTxn(addr, sp, app_addr, int(1e6)).sign(sk)
-    )
-    transaction.wait_for_confirmation(client, txid, 4)
-
-    result = app_client.call(app.create_nft, name="cool-nft")
-    print(f"Created nft with id: {result.return_value}")
+    # sp = client.suggested_params()
+    # txid = client.send_transaction(
+    #    transaction.PaymentTxn(addr, sp, app_addr, int(1e6)).sign(sk)
+    # )
+    # transaction.wait_for_confirmation(client, txid, 4)
 
 
 if __name__ == "__main__":

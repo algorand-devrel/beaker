@@ -27,9 +27,10 @@ from pyteal import (
 
 from beaker import Application, ApplicationStateValue, DynamicAccountStateValue
 from beaker.decorators import Authorize, external, create, update, delete
+from .arc20 import ARC20
 
 
-class ARC18(Application):
+class ARC18(ARC20):
 
     administrator: Final[ApplicationStateValue] = ApplicationStateValue(
         stack_type=TealType.bytes, key=Bytes("admin"), default=Global.creator_address()
@@ -43,7 +44,7 @@ class ARC18(Application):
 
     offers: Final[DynamicAccountStateValue] = DynamicAccountStateValue(
         stack_type=TealType.bytes,
-        max_keys=16,
+        max_keys=14,
         key_gen=Subroutine(TealType.bytes)(lambda asset_id: Itob(asset_id)),
     )
 
